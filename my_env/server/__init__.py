@@ -6,6 +6,6 @@
 
 """My Env environment server components."""
 
-from .my_env_environment import WordGameEnvironment
+from .my_env_environment import CodeReviewerEnvironment
 
-__all__ = ["WordGameEnvironment"]
+__all__ = ["CodeReviewerEnvironment"]

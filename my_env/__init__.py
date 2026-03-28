@@ -6,12 +6,11 @@
 
 """My Env Environment."""
 
-from .client import WordGameEnv
-from .server.models import WordGameAction, WordGameObservation, WordGameState
+from .client import CodeReviewerEnv
+from .models import CodeReviewerAction, CodeReviewerObservation
 
 __all__ = [
-    "WordGameAction",
-    "WordGameObservation",
-    "WordGameState",
-    "WordGameEnv",
+    "CodeReviewerAction",
+    "CodeReviewerObservation",
+    "CodeReviewerEnv",
 ]

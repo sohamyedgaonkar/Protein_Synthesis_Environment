@@ -4,18 +4,15 @@
 # This source code is licensed under the BSD-style license found in the
 # LICENSE file in the root directory of this source tree.
 
-import os
-os.environ['BEARTYPE_CLAW'] = 'false'
-
 """
-FastAPI application for the My Env Environment.
+FastAPI application for the Code Reviewer Environment.
 
-This module creates an HTTP server that exposes the MyEnvironment
+This module creates an HTTP server that exposes the CodeReviewerEnvironment
 over HTTP and WebSocket endpoints, compatible with EnvClient.
 
 Endpoints:
-    - POST /reset: Reset the environment
-    - POST /step: Execute an action
+    - POST /reset: Reset the environment with a GitHub repo URL
+    - POST /step: Execute a code review action
     - GET /state: Get current environment state
     - GET /schema: Get action/observation schemas
     - WS /ws: WebSocket endpoint for persistent sessions
@@ -31,12 +28,29 @@ Usage:
     python -m server.app
 """
 
+try:
+    from openenv.core.env_server.http_server import create_app
+except Exception as e:  # pragma: no cover
+    raise ImportError(
+        "openenv is required for the web interface. Install dependencies with '\n    uv sync\n'"
+    ) from e
 
-from openenv.core.env_server import create_fastapi_app
-from .my_env_environment import WordGameEnvironment
-from .models import WordGameAction, WordGameObservation, WordGameState
+try:
+    from ..models import CodeReviewerAction, CodeReviewerObservation
+    from .my_env_environment import CodeReviewerEnvironment
+except ModuleNotFoundError:
+    from models import CodeReviewerAction, CodeReviewerObservation
+    from server.my_env_environment import CodeReviewerEnvironment
 
-app = create_fastapi_app(WordGameEnvironment,WordGameAction, WordGameObservation)
+
+# Create the app with web interface and README integration
+app = create_app(
+    CodeReviewerEnvironment,
+    CodeReviewerAction,
+    CodeReviewerObservation,
+    env_name="code_reviewer",
+    max_concurrent_envs=4,  # increase this number to allow more concurrent WebSocket sessions
+)
 
 
 def main(host: str = "0.0.0.0", port: int = 8000):
