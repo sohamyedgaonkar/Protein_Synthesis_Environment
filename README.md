@@ -1,18 +1,4 @@
----
-title: Protein Folding Optimization Environment
-emoji: "🧬"
-colorFrom: blue
-colorTo: teal
-sdk: docker
-pinned: false
-app_port: 8000
-base_path: /web
-tags:
-  - openenv
-  - reinforcement-learning
-  - protein-folding
-  - biology
----
+
 
 # Protein Folding Optimization with Reinforcement Learning
 
@@ -28,7 +14,7 @@ tags:
 
 ## Visual Overview
 
-![Protein Folding Banner](../docs/images/banner.png)
+![Protein Folding Banner](../main/docs/images/banner.png)
 <p align="center"><em>Project hero image showing the intersection of molecular structure and intelligent decision making.</em></p>
 
 ---
@@ -148,7 +134,7 @@ The agent can apply structural moves such as:
 
 These actions let the policy reshape the protein step by step.
 
-![Structural Actions](../docs/images/actions_diagram.png)
+![Structural Actions](../main/docs/images/actions_diagram.png)
 <p align="center"><em>Representative structural edits available to the agent.</em></p>
 
 ---
@@ -239,7 +225,7 @@ This reward structure encourages the agent to:
 
 It is not just optimizing for one number. It is learning structural quality under multiple constraints.
 
-![Reward Flow](../docs/images/reward_calculation.png)
+![Reward Flow](../main/docs/images/reward_calculation.png)
 <p align="center"><em>Reward pipeline from action selection to geometric update, energy recomputation, and reward shaping.</em></p>
 
 ---
@@ -356,7 +342,7 @@ my_env/
 Current image folder:
 
 ```text
-rl/docs/images/
+rl/main/docs/images/
 ```
 
 Detected image files:
