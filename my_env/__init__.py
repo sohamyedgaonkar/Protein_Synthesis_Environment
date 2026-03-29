@@ -4,13 +4,14 @@
 # This source code is licensed under the BSD-style license found in the
 # LICENSE file in the root directory of this source tree.
 
-"""My Env Environment."""
+"""Protein folding environment exports."""
 
-from .client import CodeReviewerEnv
-from .models import CodeReviewerAction, CodeReviewerObservation
+from .client import MyEnv, ProteinFoldingEnv
+from .models import ProteinAction, ProteinObservation
 
 __all__ = [
-    "CodeReviewerAction",
-    "CodeReviewerObservation",
-    "CodeReviewerEnv",
+    "ProteinAction",
+    "ProteinObservation",
+    "ProteinFoldingEnv",
+    "MyEnv",
 ]

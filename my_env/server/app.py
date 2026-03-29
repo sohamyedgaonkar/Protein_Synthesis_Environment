@@ -4,29 +4,7 @@
 # This source code is licensed under the BSD-style license found in the
 # LICENSE file in the root directory of this source tree.
 
-"""
-FastAPI application for the Code Reviewer Environment.
-
-This module creates an HTTP server that exposes the CodeReviewerEnvironment
-over HTTP and WebSocket endpoints, compatible with EnvClient.
-
-Endpoints:
-    - POST /reset: Reset the environment with a GitHub repo URL
-    - POST /step: Execute a code review action
-    - GET /state: Get current environment state
-    - GET /schema: Get action/observation schemas
-    - WS /ws: WebSocket endpoint for persistent sessions
-
-Usage:
-    # Development (with auto-reload):
-    uvicorn server.app:app --reload --host 0.0.0.0 --port 8000
-
-    # Production:
-    uvicorn server.app:app --host 0.0.0.0 --port 8000 --workers 4
-
-    # Or run directly:
-    python -m server.app
-"""
+"""FastAPI application for the protein folding OpenEnv environment."""
 
 try:
     from openenv.core.env_server.http_server import create_app
@@ -36,40 +14,24 @@ except Exception as e:  # pragma: no cover
     ) from e
 
 try:
-    from ..models import CodeReviewerAction, CodeReviewerObservation
-    from .my_env_environment import CodeReviewerEnvironment
+    from ..models import ProteinAction, ProteinObservation
+    from .my_env_environment import ProteinFoldingEnvironment
 except ModuleNotFoundError:
-    from models import CodeReviewerAction, CodeReviewerObservation
-    from server.my_env_environment import CodeReviewerEnvironment
+    from models import ProteinAction, ProteinObservation
+    from server.my_env_environment import ProteinFoldingEnvironment
 
 
-# Create the app with web interface and README integration
 app = create_app(
-    CodeReviewerEnvironment,
-    CodeReviewerAction,
-    CodeReviewerObservation,
-    env_name="code_reviewer",
-    max_concurrent_envs=4,  # increase this number to allow more concurrent WebSocket sessions
+    ProteinFoldingEnvironment,
+    ProteinAction,
+    ProteinObservation,
+    env_name="my_env",
+    max_concurrent_envs=4,
 )
 
 
 def main(host: str = "0.0.0.0", port: int = 8000):
-    """
-    Entry point for direct execution via uv run or python -m.
-
-    This function enables running the server without Docker:
-        uv run --project . server
-        uv run --project . server --port 8001
-        python -m my_env.server.app
-
-    Args:
-        host: Host address to bind to (default: "0.0.0.0")
-        port: Port number to listen on (default: 8000)
-
-    For production deployments, consider using uvicorn directly with
-    multiple workers:
-        uvicorn my_env.server.app:app --workers 4
-    """
+    """Run the protein folding server directly."""
     import uvicorn
 
     uvicorn.run(app, host=host, port=port)

@@ -4,140 +4,59 @@
 # This source code is licensed under the BSD-style license found in the
 # LICENSE file in the root directory of this source tree.
 
-"""Code Reviewer Environment Client."""
+"""Client for the protein folding OpenEnv environment."""
 
-from typing import Dict, Optional, Union
+from typing import Dict
 
 from openenv.core import EnvClient
 from openenv.core.client_types import StepResult
 from openenv.core.env_server.types import State
 
-from .models import (
-    CodeReviewerAction,
-    CodeReviewerObservation,
-    CodeMetrics,
-    ErrorInfo,
-    LineEditAction,
-    LineEdit
-)
+from .models import ProteinAction, ProteinObservation
 
 
-class CodeReviewerEnv(
-    EnvClient[CodeReviewerAction, CodeReviewerObservation, State]
-):
-    """
-    Client for the Code Reviewer Environment.
+class ProteinFoldingEnv(EnvClient[ProteinAction, ProteinObservation, State]):
+    """Client wrapper for the protein folding environment."""
 
-    This client maintains a persistent WebSocket connection to the environment server,
-    enabling efficient multi-step interactions with lower latency.
-    Each client instance has its own dedicated environment session on the server.
+    def _step_payload(self, action: ProteinAction) -> Dict:
+        """Serialize a protein action into the request payload."""
+        return {
+            "action_type": action.action_type,
+            "residue_index": action.residue_index,
+            "segment_start": action.segment_start,
+            "segment_end": action.segment_end,
+            "angle_delta": action.angle_delta,
+            "metadata": action.metadata,
+        }
 
-    Example:
-        >>> # Connect to a running server
-        >>> with CodeReviewerEnv(base_url="http://localhost:8000") as client:
-        ...     result = client.reset(repo_url="https://github.com/user/repo")
-        ...     print(result.observation.execution_logs)
-        ...
-        ...     result = client.step(CodeReviewerAction(
-        ...         file_path="main.py",
-        ...         modified_code="improved code here",
-        ...         description="Fixed bug in line 42"
-        ...     ))
-        ...     print(result.reward)
-
-    Example with Docker:
-        >>> # Automatically start container and connect
-        >>> client = CodeReviewerEnv.from_docker_image("code-reviewer-env:latest")
-        >>> try:
-        ...     result = client.reset(repo_url="https://github.com/user/repo")
-        ...     print(result.observation.errors)
-        ... finally:
-        ...     client.close()
-    """
-
-    def _step_payload(self, action: Union[CodeReviewerAction, LineEditAction]) -> Dict:
-        """
-        Convert action to JSON payload for step message.
-
-        Args:
-            action: CodeReviewerAction or LineEditAction instance
-
-        Returns:
-            Dictionary representation suitable for JSON encoding
-        """
-        if isinstance(action, LineEditAction):
-            return {
-                "edits": [
-                    {
-                        "file_path": edit.file_path,
-                        "line_number": edit.line_number,
-                        "operation": edit.operation,
-                        "new_code": edit.new_code,
-                    }
-                    for edit in action.edits
-                ],
-                "description": action.description,
-            }
-        else:
-            # CodeReviewerAction
-            return {
-                "file_path": action.file_path,
-                "modified_code": action.modified_code,
-                "description": action.description,
-            }
-
-    def _parse_result(self, payload: Dict) -> StepResult[CodeReviewerObservation]:
-        """
-        Parse server response into StepResult[CodeReviewerObservation].
-
-        Args:
-            payload: JSON response data from server
-
-        Returns:
-            StepResult with CodeReviewerObservation
-        """
+    def _parse_result(self, payload: Dict) -> StepResult[ProteinObservation]:
+        """Parse the server step/reset payload into a typed observation."""
         obs_data = payload.get("observation", {})
-        
-        # Parse errors
-        errors = []
-        for err in obs_data.get("errors", []):
-            errors.append(ErrorInfo(**err))
-        
-        # Parse code metrics
-        metrics_data = obs_data.get("code_metrics", {})
-        code_metrics = CodeMetrics(**metrics_data)
-        
-        observation = CodeReviewerObservation(
-            repo_url=obs_data.get("repo_url", ""),
-            all_code=obs_data.get("all_code", ""),
-            code_file_path=obs_data.get("code_file_path", ""),
-            execution_logs=obs_data.get("execution_logs", ""),
-            errors=errors,
-            code_metrics=code_metrics,
+        observation = ProteinObservation(
+            coordinates=obs_data.get("coordinates", []),
+            torsion_angles=obs_data.get("torsion_angles", []),
+            contact_map=obs_data.get("contact_map", []),
+            energy=obs_data.get("energy", 0.0),
             step_count=obs_data.get("step_count", 0),
-            episode_id=obs_data.get("episode_id", ""),
-            done=payload.get("done", False),
-            reward=payload.get("reward", 0.0),
+            hydrophobic_contacts=obs_data.get("hydrophobic_contacts", 0),
+            collisions=obs_data.get("collisions", 0),
+            done=payload.get("done", obs_data.get("done", False)),
+            reward=payload.get("reward", obs_data.get("reward")),
             metadata=obs_data.get("metadata", {}),
         )
-
         return StepResult(
             observation=observation,
-            reward=payload.get("reward", 0.0),
-            done=payload.get("done", False),
+            reward=payload.get("reward", observation.reward),
+            done=payload.get("done", observation.done),
         )
 
     def _parse_state(self, payload: Dict) -> State:
-        """
-        Parse server response into State object.
-
-        Args:
-            payload: JSON response from state request
-
-        Returns:
-            State object with episode_id and step_count
-        """
+        """Parse the state endpoint payload."""
         return State(
             episode_id=payload.get("episode_id"),
             step_count=payload.get("step_count", 0),
         )
+
+
+# Backward-compatible alias for the scaffolded client name.
+MyEnv = ProteinFoldingEnv

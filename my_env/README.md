@@ -1,530 +1,380 @@
 ---
-title: Code Reviewer Environment Server
-emoji: 🤖
+title: Protein Folding Optimization Environment
+emoji: "🧬"
 colorFrom: blue
-colorTo: purple
+colorTo: teal
 sdk: docker
 pinned: false
 app_port: 8000
 base_path: /web
 tags:
   - openenv
-  - code-review
   - reinforcement-learning
+  - protein-folding
+  - biology
 ---
 
-# Code Reviewer Environment
+# Protein Folding Optimization with Reinforcement Learning
 
-A reinforcement learning environment for training AI agents to review and improve Python code from GitHub repositories. Agents learn to fix bugs, remove unused imports, and optimize code quality while receiving reward signals for each improvement.
+<p align="center">
+  <strong>An OpenEnv environment for learning how structural moves can reduce protein energy.</strong>
+</p>
 
-## Quick Start
+<p align="center">
+  This project models protein folding as a sequential decision-making problem, where an RL agent learns to reshape a protein chain into lower-energy, more stable conformations.
+</p>
 
-The simplest way to use the Code Reviewer environment is through the `CodeReviewerEnv` class:
+---
 
-```python
-from my_env import CodeReviewerAction, CodeReviewerEnv
+## Visual Overview
 
-try:
-    # Create environment from Docker image
-    env = CodeReviewerEnv.from_docker_image("code-reviewer-env:latest")
+![Protein Folding Banner](../docs/images/banner.png)
+<p align="center"><em>Project hero image showing the intersection of molecular structure and intelligent decision making.</em></p>
 
-    # Reset with a GitHub repository
-    repo_url = "https://github.com/user/python-project"
-    result = env.reset(repo_url=repo_url)
-    
-    print(f"Repository: {result.observation.repo_url}")
-    print(f"Initial Errors: {len(result.observation.errors)}")
-    print(f"Code Files: {result.observation.code_metrics.total_files}")
-    print(f"Code Lines: {result.observation.code_metrics.total_lines}")
+---
 
-    # Propose code improvements
-    action = CodeReviewerAction(
-        file_path="main.py",
-        modified_code="improved code here...",
-        description="Fixed bug in line 42"
-    )
+## The Problem We Are Solving
 
-    result = env.step(action)
-    print(f"\nAfter Fix:")
-    print(f"Reward: {result.reward}")
-    print(f"Errors Remaining: {len(result.observation.errors)}")
-    print(f"Done: {result.done}")
+Proteins begin as linear chains of amino acids, but their biological behavior depends on how they fold into stable three-dimensional structures. Even short chains can adopt many possible conformations, and only some of them are energetically favorable.
 
-finally:
-    # Always clean up
-    env.close()
+This environment turns that challenge into a tractable reinforcement learning task:
+
+- A protein is represented as a chain of 3D coordinates.
+- The agent applies structural transformations such as torsion rotations and segment flips.
+- After every action, the environment recomputes energy and structural quality.
+- The agent is rewarded for making the conformation more stable and compact.
+
+In short, the agent is learning this question:
+
+> "What sequence of structural edits most effectively lowers protein energy?"
+
+---
+
+## Why This Matters
+
+Protein folding sits at the center of modern biology, chemistry, and medicine.
+
+- Protein structure determines biological function.
+- Misfolded proteins are linked to major diseases.
+- Efficient structure optimization supports drug discovery and bioengineering.
+- Folding is a natural example of a hard sequential optimization problem.
+
+Even though this project uses a simplified physical model, it captures an important idea:
+
+> local structural changes can produce long-range global effects.
+
+That makes it a strong educational and experimental environment for reinforcement learning.
+
+---
+
+## Why This Problem Is Complex
+
+Protein folding is difficult because it combines:
+
+- high-dimensional geometry
+- long-horizon planning
+- delayed rewards
+- strong physical constraints
+- enormous combinational search spaces
+
+One move may improve a local angle but worsen global stability. Another move may temporarily increase disorder before enabling a better final fold. This creates a landscape full of tradeoffs, local minima, and non-obvious action sequences.
+
+![Energy Landscape](../docs/images/energy_landscape.png)
+<p align="center"><em>Conceptual energy landscape showing the search for stable low-energy states.</em></p>
+
+---
+
+## Why Reinforcement Learning
+
+Traditional search can evaluate candidate moves step by step, but RL is attractive because the problem is fundamentally sequential.
+
+RL is a strong fit because:
+
+- the agent must act repeatedly over time
+- current moves change future possibilities
+- rewards are tied to long-term structural quality
+- there is no single fixed correct action at each step
+
+Reinforcement learning lets us learn a policy:
+
+> a mapping from protein state to the next structural action
+
+This is especially useful when:
+
+- exact optimization is too expensive
+- the action space is large
+- outcomes depend on a full action sequence, not isolated decisions
+
+---
+
+## Environment Design
+
+The environment is implemented with OpenEnv and simulates a simplified protein chain.
+
+### Tasks
+
+Three task settings are defined in [openenv.yaml](/c:/Users/DELL/Desktop/tally/meta/Biological/rl/my_env/openenv.yaml):
+
+- `task_1`: protein length `8`, goal is to reduce energy by `30%`
+- `task_2`: protein length `12`, goal is to form a hydrophobic core
+- `task_3`: protein length `20`, goal is to approach minimum energy
+
+### State Representation
+
+Each observation includes:
+
+- `coordinates`: 3D position of each residue
+- `torsion_angles`: simplified `[phi, psi]` angles
+- `contact_map`: binary residue-residue contact matrix
+- `energy`: total conformation energy
+- `step_count`: current time step
+- `hydrophobic_contacts`: number of favorable hydrophobic interactions
+- `collisions`: steric clashes
+- `done`: episode termination flag
+
+These fields are defined in [models.py](/c:/Users/DELL/Desktop/tally/meta/Biological/rl/my_env/models.py).
+
+### Action Space
+
+The agent can apply structural moves such as:
+
+- `rotate_phi`
+- `rotate_psi`
+- `pivot_rotation`
+- `segment_flip`
+- `crankshaft_move`
+- `end_move_forward`
+- `end_move_backward`
+
+These actions let the policy reshape the protein step by step.
+
+![Structural Actions](../docs/images/actions_diagram.png)
+<p align="center"><em>Representative structural edits available to the agent.</em></p>
+
+---
+
+## The Energy Model
+
+The total energy is a sum of simplified physical terms:
+
+```text
+E_total =
+E_hydrophobic
++ E_steric
++ E_bond
++ E_angle
 ```
 
-That's it! The `CodeReviewerEnv.from_docker_image()` method handles:
-- Starting the Docker container
-- Waiting for the server to be ready
-- Connecting to the environment
-- Container cleanup when you call `close()`
+### 1. Hydrophobic Energy
 
-## Building the Docker Image
+Hydrophobic residues prefer to cluster together.
 
-Before using the environment, you need to build the Docker image:
+```text
+E_hydrophobic = -1 * hydrophobic_contacts
+```
+
+More hydrophobic contacts means lower energy.
+
+### 2. Steric Penalty
+
+Residues should not overlap in space.
+
+```text
+E_steric = 5 * collisions
+```
+
+Collisions strongly increase energy.
+
+### 3. Bond Constraint
+
+Neighboring residues should preserve approximately correct bond lengths.
+
+```text
+E_bond = sum((bond_length - 1.5)^2)
+```
+
+### 4. Angle Penalty
+
+Unphysical torsion values are penalized.
+
+```text
+E_angle = penalty when torsion angles exceed allowed range
+```
+
+All of this logic lives in [my_env_environment.py](/c:/Users/DELL/Desktop/tally/meta/Biological/rl/my_env/server/my_env_environment.py).
+
+---
+
+## The Reward System
+
+The reward is shaped to help the agent learn useful folding behavior while still optimizing for energy reduction.
+
+### Reward Components
+
+```text
+R_energy = previous_energy - new_energy
+R_progress = hydrophobic_contacts_gained
+R_stability = +2 if collisions == 0
+collision_penalty = -5 * collisions
+invalid_action = -10
+```
+
+### Final Reward
+
+```text
+reward =
+2 * R_energy
++ R_progress
++ R_stability
++ collision_penalty
++ invalid_action
+```
+
+This reward structure encourages the agent to:
+
+- lower energy
+- create favorable hydrophobic packing
+- avoid steric clashes
+- avoid invalid moves
+
+It is not just optimizing for one number. It is learning structural quality under multiple constraints.
+
+![Reward Flow](../docs/images/reward_calculation.png)
+<p align="center"><em>Reward pipeline from action selection to geometric update, energy recomputation, and reward shaping.</em></p>
+
+---
+
+## Why the Reward Design Is Important
+
+A naive reward like "negative energy only" can make training unstable or slow because the agent receives weak guidance. This environment uses reward shaping so the agent gets intermediate signals about whether it is:
+
+- making useful progress
+- improving structural stability
+- increasing hydrophobic packing
+- violating geometry
+
+That makes learning more practical, especially for short proteins and educational RL experiments.
+
+---
+
+## Models in This Project
+
+### 1. Environment Model
+
+The environment model simulates the protein chain and updates:
+
+- coordinates
+- torsion angles
+- contact maps
+- collisions
+- total energy
+
+Core file:
+- [my_env_environment.py](/c:/Users/DELL/Desktop/tally/meta/Biological/rl/my_env/server/my_env_environment.py)
+
+### 2. Search-Based Decision Model
+
+The script [test.py](/c:/Users/DELL/Desktop/tally/meta/Biological/rl/my_env/test.py) performs short-horizon search over legal actions and chooses strong moves greedily. It is useful for:
+
+- debugging the environment
+- generating interpretable rollouts
+- comparing hand-searched decisions against learned policies
+
+### 3. Trained RL Policy
+
+The script [train_policy.py](/c:/Users/DELL/Desktop/tally/meta/Biological/rl/my_env/train_policy.py) trains an actor-critic style policy using:
+
+- handcrafted state features
+- a linear softmax actor
+- a learned value baseline
+- reward normalization
+- evaluation checkpoints
+
+This is the learned decision-making component of the project.
+
+---
+
+## Training Workflow
+
+### Search-Based Rollout
+
+Use the search harness to inspect strong candidate actions:
 
 ```bash
-# From project root
-docker build -t code-reviewer-env:latest -f server/Dockerfile .
+python rl/my_env/test.py --task task_1
 ```
 
-## Key Features
-
-### Environment Functions
-
-**reset(repo_url: str) → CodeReviewerObservation**
-- Clones a GitHub Python repository
-- Collects all source code
-- Analyzes code quality (imports, syntax, etc.)
-- Executes main.py and captures output/errors
-- Returns full observation with code and initial errors
-
-**step(action) → CodeReviewerObservation**
-
-Supports **two types of actions**:
-
-1. **CodeReviewerAction** - Full file replacement
-   - Provide entire modified file content
-   - Simpler but less efficient
-   - Use when replacing entire file
-
-2. **LineEditAction** ⭐ NEW - Granular line-by-line edits
-   - Make targeted changes without full file content
-   - Support operations: replace, add, delete
-   - More efficient - agent only specifies changed lines
-   - Multiple edits in one action
-   - Perfect for fixing specific errors
-
-Example with CodeReviewerAction:
-```python
-action = CodeReviewerAction(
-    file_path="main.py",
-    modified_code="entire file content...",
-    description="Fixed bug"
-)
-```
-
-Example with LineEditAction:
-```python
-action = LineEditAction(
-    edits=[
-        LineEdit(file_path="main.py", line_number=51, 
-                operation="replace", new_code="def add_numbers(a, b):\n"),
-        LineEdit(file_path="main.py", line_number=73, 
-                operation="replace", new_code="def thread_task():\n"),
-    ],
-    description="Fixed 2 syntax errors"
-)
-```
-
-- Applies proposed code changes
-- Re-analyzes code metrics
-- Re-executes main.py
-- Calculates reward based on improvements
-- Returns observation with new results and reward
-
-**state → State**
-- Returns current episode ID and step count
-
-### Observation Structure
-
-The observation includes:
-- `repo_url` - URL of the repository
-- `all_code` - Complete code from all Python files
-- `execution_logs` - Output from running main.py
-- `errors` - List of errors with type, message, line number
-- `code_metrics` - Code analysis (unused imports, syntax errors, etc.)
-- `reward` - Reward signal for this step
-- `done` - Episode completion flag
-- `metadata` - Additional tracking information
-
-### Reward System
-
-Agents receive rewards for improvements:
-| Achievement | Reward |
-|-------------|--------|
-| Fix an error | +0.5 |
-| Remove unused import | +0.1 |
-| Reduce warning count | +0.1 per warning |
-| Successful execution | +0.2 |
-| Introduce syntax error | -0.2 |
-
-### Code Analysis Features
-
-The environment automatically:
-- ✅ Detects unused imports using AST parsing
-- ✅ Counts syntax and runtime errors
-- ✅ Parses exception tracebacks
-- ✅ Extracts line numbers from errors
-- ✅ Tracks code quality metrics
-- ✅ Manages repository versions
-
-## How It Works
-
-```
-1. Agent initializes with GitHub repo URL
-   └─ reset("https://github.com/user/project")
-   
-2. Environment returns initial code state
-   └─ all_code, errors, metrics, execution_logs
-   
-3. Agent analyzes errors and proposes fix
-   └─ Option A: CodeReviewerAction(file_path, modified_code)
-   └─ Option B: LineEditAction(edits=[LineEdit(...), ...])  ⭐ NEW
-   
-4. Environment applies changes and tests
-   └─ Runs main.py, analyzes metrics, calculates reward
-   
-5. Agent receives feedback
-   └─ reward signal, new errors, updated metrics
-   
-6. Repeat until episode complete
-   └─ done=True when all errors/warnings fixed
-```
-
-## Environment Details
-
-### Action - CodeReviewerAction
-```python
-{
-    "file_path": "main.py",           # File to modify (relative path)
-    "modified_code": "import sys\n...",  # Complete new file content
-    "description": "Fixed bug"        # Change description
-}
-```
-
-### Action - LineEditAction ⭐ NEW
-```python
-{
-    "edits": [
-        {
-            "file_path": "main.py",
-            "line_number": 51,                    # 1-indexed line number
-            "operation": "replace",               # replace | add | delete
-            "new_code": "def add_numbers(a, b):\n"  # Required for replace/add
-        },
-        {
-            "file_path": "main.py",
-            "line_number": 73,
-            "operation": "replace",
-            "new_code": "def thread_task():\n"
-        }
-    ],
-    "description": "Fixed 2 syntax errors"
-}
-```
-
-**LineEditAction Operations:**
-- `replace` - Modify existing line (line must exist)
-- `add` - Insert new line before specified line number
-- `delete` - Remove a line (new_code not used)
-
-**Advantages:**
-- No need to provide entire file content
-- Multiple edits in one action
-- More efficient - targeted changes only
-- Clear indication of what changed
-
-### Observation - CodeReviewerObservation
-```python
-{
-    "repo_url": "https://github.com/...",
-    "all_code": "# All code from repo",
-    "code_file_path": "Repo/{id}/code_summary.txt",
-    "execution_logs": "stdout/stderr from main.py",
-    "errors": [
-        {
-            "error_type": "RuntimeError",
-            "error_message": "...",
-            "line_number": 42,
-            "traceback": "..."
-        }
-    ],
-    "code_metrics": {
-        "unused_imports": ["os", "sys"],
-        "syntax_errors": 0,
-        "runtime_errors": 1,
-        "warnings": [],
-        "total_lines": 150,
-        "total_files": 3
-    },
-    "done": false,
-    "reward": 0.5,
-    "step_count": 1,
-    "episode_id": "uuid"
-}
-```
-
-### Reward
-The reward signal guides learning:
-- **Positive**: Fixing errors, removing unused imports, succeeding
-- **Negative**: Introducing new errors, syntax violations
-- **Episodes end**: When all errors and warnings are fixed
-
-## Deploying to Hugging Face Spaces
-
-You can easily deploy your OpenEnv environment to Hugging Face Spaces:
+### Train the Policy
 
 ```bash
-# From the environment directory (where openenv.yaml is located)
-openenv push
-
-# Or specify options
-openenv push --repo-id my-org/code-reviewer --private
+python rl/my_env/train_policy.py --task task_1 --episodes 400
 ```
 
-The deployed space includes:
-- **Web Interface** at `/web` - Interactive UI for testing
-- **API Documentation** at `/docs` - Full OpenAPI interface
-- **Health Check** at `/health` - Container health monitoring
-- **WebSocket** at `/ws` - Persistent session endpoint
-
-## Advanced Usage
-
-### Connecting to an Existing Server
-
-```python
-from my_env import CodeReviewerEnv
-
-# Connect to running server
-env = CodeReviewerEnv(base_url="http://localhost:8000")
-
-result = env.reset("https://github.com/user/repo")
-```
-
-### Local Testing Without Server
-
-```python
-from my_env.server.my_env_environment import CodeReviewerEnvironment
-
-# Direct environment access
-env = CodeReviewerEnvironment()
-obs = env.reset("https://github.com/user/repo")
-
-# Apply action
-action = CodeReviewerAction(
-    file_path="main.py",
-    modified_code="...",
-    description="Fix"
-)
-obs = env.step(action)
-```
-
-### Training an RL Agent
-
-```python
-from my_env import CodeReviewerEnv, CodeReviewerAction
-import random
-
-env = CodeReviewerEnv(base_url="http://localhost:8000")
-obs = env.reset("https://github.com/target/repo")
-
-total_reward = 0
-for step in range(10):  # Max 10 improvement attempts
-    # Agent analyzes observation and proposes fix
-    # (Replace with your RL model)
-    action = CodeReviewerAction(
-        file_path="main.py",
-        modified_code="improved code...",
-        description=f"Improvement {step+1}"
-    )
-    
-    result = env.step(action)
-    total_reward += result.reward
-    
-    if result.done:
-        print(f"Episode completed in {step+1} steps!")
-        break
-
-print(f"Total reward: {total_reward}")
-```
-
-## Repository Requirements
-
-The Code Reviewer environment expects repositories to have:
-- **main.py** in the root directory - This will be executed to test changes
-- **Python files** - Source code to analyze and improve
-
-The environment will:
-1. Clone the repository
-2. Collect all Python source files
-3. Run main.py and capture any errors
-4. Track metrics across improvements
-
-## Testing
-
-Run the test suite to verify the installation:
+### Evaluate the Best Learned Policy
 
 ```bash
-python test_environment.py
+python rl/my_env/train_policy.py --mode eval --task task_1 --model-file rl/my_env/models/protein_policy_best.npz
 ```
 
-Try the example usage:
+### Logs and Metrics
 
-```bash
-python example_usage.py
-```
+Training metrics are written to:
 
-## Documentation
+- [training_metrics.csv](/c:/Users/DELL/Desktop/tally/meta/Biological/rl/my_env/logs/training_metrics.csv)
 
-- **Full Guide**: See `CODE_REVIEWER_GUIDE.md`
-- **Implementation Details**: See `IMPLEMENTATION_SUMMARY.md`
-- **LineEditAction Guide**: See `LINE_EDIT_EXAMPLES.md` ⭐ NEW
-- **Examples**: See `example_usage.py`
-- **Tests**: Run `test_environment.py`
+Search and rollout logs are written to:
 
-## Configuration
+- [protein_folding_run.log](/c:/Users/DELL/Desktop/tally/meta/Biological/rl/my_env/logs/protein_folding_run.log)
 
-### max_concurrent_envs
-Edit `server/app.py`:
-```python
-app = create_app(
-    ...,
-    max_concurrent_envs=4  # Adjust for system resources
-)
-```
-
-### Execution Timeout
-Edit `server/my_env_environment.py`:
-```python
-timeout=30  # Seconds before execution times out
-```
-
-### Repository Cleanup
-The environment automatically keeps the 3 most recent repositories
-in the `Repo/` folder.
-
-## What Agents Learn
-
-This environment helps train agents to:
-- ✓ Identify Python syntax errors
-- ✓ Fix runtime errors
-- ✓ Detect and remove unused imports
-- ✓ Improve code quality
-- ✓ Test code changes iteratively
-- ✓ Optimize based on reward signals
-- ✓ Develop code review strategies
-
-## Next Steps
-
-1. **Build Docker Image**: `docker build -t code-reviewer-env:latest -f server/Dockerfile .`
-2. **Run Tests**: `python test_environment.py`
-3. **Start Server**: `uvicorn server.app:app --reload`
-4. **Connect Agent**: Use `CodeReviewerEnv` client
-5. **Train Model**: Implement your RL agent
-
-## Support
-
-For issues, examples, and documentation:
-- See `CODE_REVIEWER_GUIDE.md` for complete API reference
-- See `IMPLEMENTATION_SUMMARY.md` for architecture details
-- Run `test_environment.py` to verify installation
-- Check `example_usage.py` for usage patterns
-
-# Use as normal
-result = my_envenv.reset()
-result = my_envenv.step(MyAction(message="Hello!"))
-```
-
-Note: When connecting to an existing server, `my_envenv.close()` will NOT stop the server.
-
-### Using the Context Manager
-
-The client supports context manager usage for automatic connection management:
-
-```python
-from my_env import MyAction, MyEnv
-
-# Connect with context manager (auto-connects and closes)
-with MyEnv(base_url="http://localhost:8000") as env:
-    result = env.reset()
-    print(f"Reset: {result.observation.echoed_message}")
-    # Multiple steps with low latency
-    for msg in ["Hello", "World", "!"]:
-        result = env.step(MyAction(message=msg))
-        print(f"Echoed: {result.observation.echoed_message}")
-```
-
-The client uses WebSocket connections for:
-- **Lower latency**: No HTTP connection overhead per request
-- **Persistent session**: Server maintains your environment state
-- **Efficient for episodes**: Better for many sequential steps
-
-### Concurrent WebSocket Sessions
-
-The server supports multiple concurrent WebSocket connections. To enable this,
-modify `server/app.py` to use factory mode:
-
-```python
-# In server/app.py - use factory mode for concurrent sessions
-app = create_app(
-    MyEnvironment,  # Pass class, not instance
-    MyAction,
-    MyObservation,
-    max_concurrent_envs=4,  # Allow 4 concurrent sessions
-)
-```
-
-Then multiple clients can connect simultaneously:
-
-```python
-from my_env import MyAction, MyEnv
-from concurrent.futures import ThreadPoolExecutor
-
-def run_episode(client_id: int):
-    with MyEnv(base_url="http://localhost:8000") as env:
-        result = env.reset()
-        for i in range(10):
-            result = env.step(MyAction(message=f"Client {client_id}, step {i}"))
-        return client_id, result.observation.message_length
-
-# Run 4 episodes concurrently
-with ThreadPoolExecutor(max_workers=4) as executor:
-    results = list(executor.map(run_episode, range(4)))
-```
-
-## Development & Testing
-
-### Direct Environment Testing
-
-Test the environment logic directly without starting the HTTP server:
-
-```bash
-# From the server directory
-python3 server/my_env_environment.py
-```
-
-This verifies that:
-- Environment resets correctly
-- Step executes actions properly
-- State tracking works
-- Rewards are calculated correctly
-
-### Running Locally
-
-Run the server locally for development:
-
-```bash
-uvicorn server.app:app --reload
-```
+---
 
 ## Project Structure
 
-```
+```text
 my_env/
-├── .dockerignore         # Docker build exclusions
-├── __init__.py            # Module exports
-├── README.md              # This file
-├── openenv.yaml           # OpenEnv manifest
-├── pyproject.toml         # Project metadata and dependencies
-├── uv.lock                # Locked dependencies (generated)
-├── client.py              # MyEnv client
-├── models.py              # Action and Observation models
-└── server/
-    ├── __init__.py        # Server module exports
-    ├── my_env_environment.py  # Core environment logic
-    ├── app.py             # FastAPI application (HTTP + WebSocket endpoints)
-    └── Dockerfile         # Container image definition
+|-- README.md
+|-- openenv.yaml
+|-- models.py
+|-- client.py
+|-- test.py
+|-- train_policy.py
+|-- logs/
+|   |-- protein_folding_run.log
+|   `-- training_metrics.csv
+|-- models/
+|   |-- protein_policy_best.npz
+|   `-- protein_policy_final.npz
+`-- server/
+    |-- app.py
+    `-- my_env_environment.py
 ```
+
+---
+
+## Images Used
+
+Current image folder:
+
+```text
+rl/docs/images/
+```
+
+Detected image files:
+
+- `banner.png`
+- `energy_landscape.png`
+- `actions_diagram.png`
+- `reward_calculation.png`
+
+Placement in this README:
+
+- top hero section: `banner.png`
+- complexity section: `energy_landscape.png`
+- action space section: `actions_diagram.png`
+- reward system section: `reward_calculation.png`
+
+---
+
+## In One Sentence
+
+This project uses reinforcement learning to teach an agent how to fold a simplified protein chain by applying structural transformations that reduce energy, improve stability, and encourage hydrophobic packing.

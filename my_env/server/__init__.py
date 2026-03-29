@@ -4,8 +4,8 @@
 # This source code is licensed under the BSD-style license found in the
 # LICENSE file in the root directory of this source tree.
 
-"""My Env environment server components."""
+"""Protein folding environment server exports."""
 
-from .my_env_environment import CodeReviewerEnvironment
+from .my_env_environment import MyEnvironment, ProteinFoldingEnvironment
 
-__all__ = ["CodeReviewerEnvironment"]
+__all__ = ["ProteinFoldingEnvironment", "MyEnvironment"]
