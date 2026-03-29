@@ -124,10 +124,6 @@ class ProteinFoldingEnvironment(Environment):
     ) -> ProteinObservation:
         """Apply a structural move, recompute energy, and emit shaped reward."""
         del timeout_s
-
-        # Some callers invoke `step` before `reset`. Initialize a default episode
-        # so the first action runs against a valid protein chain instead of an
-        # empty placeholder state that always yields an invalid-action penalty.
         if not self._is_initialized():
             self.reset(
                 seed=kwargs.get("seed"),
@@ -156,14 +152,14 @@ class ProteinFoldingEnvironment(Environment):
         self._state.step_count += 1
 
         if invalid_action:
-            reward = -10.0
+            reward = 0.0
             done = self._is_done()
             observation = self._make_observation(
                 reward=reward,
                 done=done,
                 invalid_action=True,
             )
-            observation.metadata["reward_breakdown"]["invalid_action"] = -10.0
+            observation.metadata["reward_breakdown"]["invalid_action"] = 0.0
             return observation
 
         self._torsion_angles = self._normalize_angles(next_torsions)
@@ -172,18 +168,23 @@ class ProteinFoldingEnvironment(Environment):
 
         done = self._is_done()
 
-        r_energy = previous_energy - self._energy
-        r_progress = max(0, self._hydrophobic_contacts - previous_contacts)
-        r_stability = 2.0 if self._collisions == 0 else 0.0
-        collision_penalty = -5.0 * self._collisions
-        invalid_penalty = 0.0
-        reward = (
-            2.0 * r_energy
-            + float(r_progress)
-            + r_stability
-            + collision_penalty
-            + invalid_penalty
+        # Compute normalized reward components in [0, 1]
+        initial_energy_magnitude = max(abs(self._initial_energy), 1e-6)
+        energy_improvement = (previous_energy - self._energy) / initial_energy_magnitude
+        energy_term = np.clip(energy_improvement, 0.0, 1.0)
+        
+        progress_term = np.clip(
+            float(self._hydrophobic_contacts) / max(self._max_hydrophobic_contacts, 1),
+            0.0,
+            1.0
         )
+        
+        collision_cost = np.clip(float(self._collisions) / 10.0, 0.0, 1.0)
+        stability_term = 1.0 - collision_cost
+        
+        # Weighted average to keep reward in [0, 1]
+        reward = float(0.4 * energy_term + 0.35 * progress_term + 0.25 * stability_term)
+        reward = float(np.round(reward, 4))
 
         observation = self._make_observation(
             reward=reward,
@@ -191,11 +192,10 @@ class ProteinFoldingEnvironment(Environment):
             invalid_action=False,
         )
         observation.metadata["reward_breakdown"] = {
-            "energy_term": 2.0 * r_energy,
-            "progress_term": float(r_progress),
-            "stability_term": r_stability,
-            "collision_penalty": collision_penalty,
-            "invalid_action": invalid_penalty,
+            "energy_term": float(np.round(energy_term, 4)),
+            "progress_term": float(np.round(progress_term, 4)),
+            "collision_cost": float(np.round(collision_cost, 4)),
+            "total_reward": reward,
         }
         return observation
 
