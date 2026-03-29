@@ -123,7 +123,17 @@ class ProteinFoldingEnvironment(Environment):
         **kwargs: Any,
     ) -> ProteinObservation:
         """Apply a structural move, recompute energy, and emit shaped reward."""
-        del timeout_s, kwargs
+        del timeout_s
+
+        # Some callers invoke `step` before `reset`. Initialize a default episode
+        # so the first action runs against a valid protein chain instead of an
+        # empty placeholder state that always yields an invalid-action penalty.
+        if not self._is_initialized():
+            self.reset(
+                seed=kwargs.get("seed"),
+                task_id=kwargs.get("task_id", self._task.task_id),
+                episode_id=kwargs.get("episode_id"),
+            )
 
         previous_energy = self._energy
         previous_contacts = self._hydrophobic_contacts
@@ -444,6 +454,10 @@ class ProteinFoldingEnvironment(Environment):
     def _normalize_angles(self, torsions: np.ndarray) -> np.ndarray:
         """Wrap torsion angles into [-180, 180]."""
         return ((torsions + 180.0) % 360.0) - 180.0
+
+    def _is_initialized(self) -> bool:
+        """Check whether the environment has a live episode state."""
+        return bool(self._coordinates.shape[0] and self._torsion_angles.shape[0])
 
     def _estimate_max_hydrophobic_contacts(self, length: int) -> int:
         """Estimate a reasonable upper bound for normalization."""
