@@ -26,6 +26,10 @@ load_dotenv() # Load your OpenAI key from .env
 sys.path.append(os.path.dirname(__file__))
 
 from openai import OpenAI
+import asyncio  # Required for Docker lifecycle
+from openenv.core.env_client import EnvClient
+from openenv.core.client_types import StepResult
+import numpy as np
 
 try:
     from models import ProteinAction, ProteinObservation
@@ -48,9 +52,35 @@ MAX_STEPS = int(os.getenv("MAX_STEPS", "3"))
 TEMPERATURE = float(os.getenv("TEMPERATURE", "0.2"))
 MAX_TOKENS = int(os.getenv("MAX_TOKENS", "250"))
 SHORTLIST_SIZE = int(os.getenv("SHORTLIST_SIZE", "8"))
+LOCAL_IMAGE_NAME = os.getenv("LOCAL_IMAGE_NAME", "protein-env:latest")
 
 ACTION_JSON_RE = re.compile(r"\{.*\}", re.DOTALL)
+class ProteinFoldingEnvClient(EnvClient[ProteinAction, ProteinObservation, Any]):
+    """Bridge that communicates with the Docker container via HTTP."""
+    
+    def _step_payload(self, action: ProteinAction) -> dict:
+        # EnvClient automatically wraps this in {"action": ...}
+        # exclude_none=True prevents sending null fields that might trigger validation errors
+        return action.model_dump(exclude_none=True)
 
+    def _parse_result(self, payload: dict) -> StepResult:
+        # 1. Extract the actual observation data from the nested key
+        # If 'observation' isn't a key, it falls back to the payload itself
+        obs_data = payload.get("observation", payload)
+        
+        # 2. Reconstruct the Observation model
+        # We use .get() for reward and done as they are part of the StepResult, 
+        # not necessarily the Observation model itself.
+        observation = ProteinObservation(**obs_data)
+        
+        return StepResult(
+            observation=observation,
+            reward=payload.get("reward", 0.0),
+            done=payload.get("done", False),
+        )
+
+    def _parse_state(self, payload: dict) -> Any:
+        return payload
 SYSTEM_PROMPT = textwrap.dedent(
     """
     You are controlling a simplified protein folding environment.
@@ -112,17 +142,28 @@ def estimate_action_quality(observation: ProteinObservation, task_id: str) -> fl
 
 
 def shortlist_candidates(
-    env: ProteinFoldingEnvironment,
+    current_obs: ProteinObservation,
     candidates: list[ProteinAction],
     shortlist_size: int,
     task_id: str, # Add this
 ) -> list[tuple[ProteinAction, ProteinObservation, float]]:
     """Evaluate all legal actions once and keep the strongest immediate moves."""
+     # 1. Create a local simulator (physics engine)
+    simulator = ProteinFoldingEnvironment()
+    simulator.reset(task_id=task_id) # Set the right length
+    
+    # 2. Sync the local simulator to the Docker environment's current state
+    simulator._torsion_angles = np.array(current_obs.torsion_angles)
+    simulator._coordinates = np.array(current_obs.coordinates)
+    simulator._update_metrics()
     ranked: list[tuple[ProteinAction, ProteinObservation, float]] = []
     for action in candidates:
-        env_copy = copy.deepcopy(env)
-        observation = env_copy.step(action)
-        ranked.append((action, observation, estimate_action_quality(observation, task_id))) # Pass task_id to the quality estimator
+        env_copy = copy.deepcopy(simulator)
+        try:
+            obs = env_copy.step(action)
+            ranked.append((action, obs, estimate_action_quality(obs, task_id)))
+        except:
+            continue
 
     ranked.sort(key=lambda item: item[2], reverse=True)
     return ranked[: max(1, shortlist_size)]
@@ -237,85 +278,90 @@ def ensure_required_env() -> None:
         raise RuntimeError(f"Missing required environment variables: {missing_text}")
 
 
-def main() -> None:
+async def main() -> None:
     """Run one inference episode with LLM-selected structural actions."""
     ensure_required_env()
     client = OpenAI(base_url=API_BASE_URL, api_key=API_KEY)
-
+    env = await ProteinFoldingEnvClient.from_docker_image(LOCAL_IMAGE_NAME)
     tasks_to_evaluate = ["task_1", "task_2", "task_3"]
-    
-    for current_task in tasks_to_evaluate:
-        print(f"\n\n{'='*60}")
-        print(f"EVALUATING: {current_task.upper()}")
-        print(f"{'='*60}")
+    try:
+        for current_task in tasks_to_evaluate:
+            print(f"\n\n{'='*60}")
+            print(f"EVALUATING: {current_task.upper()}")
+            print(f"{'='*60}")
 
-        # 1. Initialize Environment for the specific task
-        env = ProteinFoldingEnvironment()
-        observation = env.reset(seed=EPISODE_SEED, task_id=current_task)
-        print(f"[START] task={current_task} env=protein_folding model={MODEL_NAME}", flush=True)
-
-        
-
-        # History tracks the trajectory to help the LLM reason
-        history: list[str] = []
-        rewards: list[float] = []
-        
-        # Determine how many steps to allow based on task complexity
-        # Task 3 runs for the full duration (50+ steps) as requested
-        loop_limit = MAX_STEPS if current_task != "task_3" else max(MAX_STEPS, 15)
-    
-    
-
-        for step in range(1, loop_limit + 1):
-            if observation.done:
-                print("Environment signalled done. Stopping early.")
-                break
-            candidates = build_action_candidates(len(observation.coordinates))
-            shortlisted = shortlist_candidates(env, candidates, SHORTLIST_SIZE, current_task)
-            candidate_actions = [item[0] for item in shortlisted]
-            # 3. Build Prompt (including history so LLM learns from steps)
-            user_prompt = build_user_prompt(observation, shortlisted, history,current_task)
-
-            try:
-                completion = client.chat.completions.create(
-                    model=MODEL_NAME,
-                    messages=[
-                        {"role": "system", "content": SYSTEM_PROMPT},
-                        {"role": "user", "content": user_prompt},
-                    ],
-                    temperature=TEMPERATURE,
-                    max_tokens=MAX_TOKENS,
-        
-                )
-                response_text = completion.choices[0].message.content or ""
-            except Exception as exc:  # noqa: BLE001
-                print(f"Model request failed ({exc}). Falling back to strongest heuristic action.")
-                response_text = ""
-
-            chosen_action = parse_action_response(response_text, candidate_actions)
-            observation = env.step(chosen_action)
-
-            reward = float(observation.reward or 0.0)
-            rewards.append(reward)
-            action_desc = format_action(chosen_action).replace(" ", "_")
-            done_val = str(observation.done).lower()    
-            print(f"[STEP] step={step} action={action_desc} reward={reward:.2f} done={done_val} error=null", flush=True)
-            history.append(f"Step {step}: {format_action(chosen_action)} -> reward {reward:.2f}")
+            # 1. Initialize Environment for the specific task
+            
+            result = await env.reset(seed=EPISODE_SEED, task_id=current_task)
+            observation = result.observation
+            print(f"[START] task={current_task} env=protein_folding model={MODEL_NAME}", flush=True)
 
             
 
+            # History tracks the trajectory to help the LLM reason
+            history: list[str] = []
+            rewards: list[float] = []
+            
+            # Determine how many steps to allow based on task complexity
+            # Task 3 runs for the full duration (50+ steps) as requested
+            loop_limit = MAX_STEPS if current_task != "task_3" else max(MAX_STEPS, 15)
         
-    
+        
 
-        # Final Score calculation
-        final_score = float(observation.metadata.get('score', 0.0))
-        success = str(final_score >= 0.7).lower() # Example threshold
+            for step in range(1, loop_limit + 1):
+                if observation.done:
+                    print("Environment signalled done. Stopping early.")
+                    break
+                candidates = build_action_candidates(len(observation.coordinates))
+                shortlisted = shortlist_candidates(observation, candidates, SHORTLIST_SIZE, current_task)
+                candidate_actions = [item[0] for item in shortlisted]
+                # 3. Build Prompt (including history so LLM learns from steps)
+                user_prompt = build_user_prompt(observation, shortlisted, history,current_task)
+
+                try:
+                    completion = client.chat.completions.create(
+                        model=MODEL_NAME,
+                        messages=[
+                            {"role": "system", "content": SYSTEM_PROMPT},
+                            {"role": "user", "content": user_prompt},
+                        ],
+                        temperature=TEMPERATURE,
+                        max_tokens=MAX_TOKENS,
+            
+                    )
+                    response_text = completion.choices[0].message.content or ""
+                except Exception as exc:  # noqa: BLE001
+                    print(f"Model request failed ({exc}). Falling back to strongest heuristic action.")
+                    response_text = ""
+
+                chosen_action = parse_action_response(response_text, candidate_actions)
+                result = await env.step(chosen_action)
+                observation = result.observation
+
+                reward = float(observation.reward or 0.0)
+                rewards.append(reward)
+                action_desc = format_action(chosen_action).replace(" ", "_")
+                done_val = str(observation.done).lower()    
+                print(f"[STEP] step={step} action={action_desc} reward={reward:.2f} done={done_val} error=null", flush=True)
+                history.append(f"Step {step}: {format_action(chosen_action)} -> reward {reward:.2f}")
+
+                
+
+            
         
-        # [END] line is MANDATORY
-        # Format: [END] success=<bool> steps=<n> score=<0.000> rewards=<r1,r2,rn>
-        rewards_str = ",".join([f"{r:.2f}" for r in rewards])
-        print(f"[END] success={success} steps={len(rewards)} score={final_score:.3f} rewards={rewards_str}", flush=True)
+
+            # Final Score calculation
+            final_score = float(observation.metadata.get('score', 0.0))
+            success = str(final_score >= 0.7).lower() # Example threshold
+            
+            # [END] line is MANDATORY
+            # Format: [END] success=<bool> steps=<n> score=<0.000> rewards=<r1,r2,rn>
+            rewards_str = ",".join([f"{r:.2f}" for r in rewards])
+            print(f"[END] success={success} steps={len(rewards)} score={final_score:.3f} rewards={rewards_str}", flush=True)
+    finally:
+
+        await env.close()
 
 
 if __name__ == "__main__":
-    main()
+    asyncio.run(main())

@@ -12,6 +12,10 @@ from pydantic import Field
 
 class ProteinAction(Action):
     """Structural edit applied to the simplified protein chain."""
+    # ADD THIS
+    model_config = {
+        "extra": "ignore"
+    }
 
     action_type: str = Field(..., description="Type of structural move to apply")
     residue_index: int | None = Field(
@@ -34,6 +38,10 @@ class ProteinAction(Action):
 
 class ProteinObservation(Observation):
     """Observable state of the protein folding environment."""
+    # ADD THIS
+    model_config = {
+        "extra": "ignore"
+    }
 
     coordinates: list[list[float]] = Field(
         default_factory=list,
