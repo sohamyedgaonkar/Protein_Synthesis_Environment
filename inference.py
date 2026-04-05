@@ -21,10 +21,7 @@ from typing import Any
 import sys
 from dotenv import load_dotenv
 load_dotenv() # Load your OpenAI key from .env
-
-# ADD THIS: Ensures the script can find the 'my_env' folder
 sys.path.append(os.path.dirname(__file__))
-
 from openai import OpenAI
 import asyncio  # Required for Docker lifecycle
 from openenv.core.env_client import EnvClient
